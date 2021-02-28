@@ -236,7 +236,7 @@ const main = async function() {
 			return canvas;
       //return cloneCanvas(canvas);
   }
-	const inner = async function(resolve, canvas, x, y) {
+	const inner = function(resolve, canvas, x, y) {
       const smallCanvas = document.createElement('canvas');
       const ctx = smallCanvas.getContext('2d');
       smallCanvas.width = scaledSpriteWidth;
@@ -256,7 +256,7 @@ const main = async function() {
       */
 	};
 
-	const draw = async function*(canvases) {
+	const draw = function*(canvases) {
 		for (let yr = 0; yr < rheight; yr += scaledSpriteWidth) {
 			for (let xr = 0; xr < rwidth; xr += scaledSpriteHeight) {
         const xp = Math.floor(xr / paintWidth);
@@ -267,11 +267,13 @@ const main = async function() {
 				yield new Promise(resolve => inner(resolve, canvases[paintIndex], x, y));
 			}
 		}
+    return;
 	};
 
   // Listen for animate update
 	let finished = false;
 	const raf = requestAnimationFrame;
+	let drawer = null;
   const update = (async (delta) => {
       // rotate the container!
       // use delta to create frame-independent transform
@@ -287,10 +289,20 @@ const main = async function() {
             //console.log(indexf(xp, yp), canvases.length);
           }
         }
+        drawer = draw(canvases);
         //indexf(xp, yp);
-        for await (const img of draw(canvases)) {
-          //console.log(img);
+			}
+			if (drawer != null) {
+        let startTime = performance.now();
+        while (performance.now() - startTime <= 100.0) {
+          const next = drawer.next();
+          if (next.done) {
+            drawer = null;
+            break;
+          }
+          await next.value;
         }
+        //console.log(performance.now() - startTime);
 			}
 			raf(update);
   });
