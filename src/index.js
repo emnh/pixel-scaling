@@ -12,7 +12,6 @@ varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 uniform float time;
 uniform vec2 offset;
-uniform vec2 imgResolution;
 uniform vec4 inputSize;
 uniform vec4 inputPixel;
 uniform vec4 inputClamp;
@@ -21,9 +20,8 @@ uniform vec4 inputClamp;
 
 vec4 texelFetch(sampler2D sampler, ivec2 iuv, int mipmap) {
 	//vec4 inputClamp = vec4(vec2(0.0), vec2(1.0));
-	//vec2 uv = clamp(vec2(iuv) / imgResolution, inputClamp.xy, inputClamp.zw);
 	vec2 uv = (vec2(iuv) + vec2(0.5)) / inputSize.xy;
-	return texture2D(sampler, offset + uv);
+	return texture2D(sampler, clamp(offset + uv, vec2(0.0), vec2(1.0)));
 }
 
 /*Copyright 2020 Ethan Alexander Shulman
@@ -99,10 +97,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 }
 
 void main() {
-	//mainImage(gl_FragColor, vec2(gl_FragCoord.x, imgResolution.y - gl_FragCoord.y));
-	//mainImage(gl_FragColor, vTextureCoord * imgResolution);
 	//mainImage(gl_FragColor, vTextureCoord * inputSize.xy);
-	//mainImage(gl_FragColor, vTextureCoord * imgResolution);
 	mainImage(gl_FragColor, vTextureCoord * inputSize.xy);
 	//gl_FragColor = texture2D(uSampler, vTextureCoord * 0.25);
 }
@@ -113,125 +108,197 @@ void main() {
 const main = async function() {
   //const width = window.innerWidth;
   //const height = window.innerHeight;
+
 	const texWidth = 2048;
 	const texHeight = 3040;
-	const scale = 4;
+	//const texWidth = 128;
+	//const texHeight = 128;
+	const scale = 32;
   const width = texWidth;
   const height = texHeight;
 	const spriteWidth = 32;
 	const spriteHeight = 32;
+  const scaledSpriteWidth = scale * spriteWidth;
+  const scaledSpriteHeight = scale * spriteHeight;
+  const rwidth = scale * texWidth;
+  const rheight = scale * texHeight;
+  //const maxX = Math.floor(4096 / scaledSpriteWidth);
+  //const maxY = Math.floor(4096 / scaledSpriteHeight);
+	const tsize = 16384;
+	const maxPaintSize = tsize - tsize % scale;
+  const paintWidth = Math.min(maxPaintSize, rwidth);
+  const paintHeight = Math.min(maxPaintSize, rheight);
+  const xPaintSectors = Math.ceil(rwidth / paintWidth);
+  const yPaintSectors = Math.ceil(rheight / paintHeight);
 
-	const rect = new PIXI.Rectangle(0, 0, scale * spriteWidth, scale * spriteHeight);
-
-  const app = new PIXI.Application({
-      width: rect.width,
-			height: rect.height,
+  const renderer = new PIXI.Renderer({
+      width: paintWidth,
+			height: paintHeight,
 			backgroundColor: 0xffffff,
 			resolution: window.devicePixelRatio || 1,
 			preserveDrawingBuffer: true
   });
   //document.body.appendChild(app.view);
 
-  const container = new PIXI.Container();
+  //const container = new PIXI.Container();
 
   //app.stage.addChild(container);
 
   // Create a new texture
 	PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.NEAREST;
-	PIXI.settings.FILTER_RESOLUTION = scale;
+	//PIXI.settings.FILTER_RESOLUTION = scale;
   const texture = PIXI.Texture.from('ProjectUtumno_full.png');
 
 	const filter = new PIXI.Filter(null, fragmentString.replaceAll('UPSCALE', scale.toFixed(2)), {
 		time: 0.0,
-		offset: { x: 0, y: 0 },
-		imgResolution: { x: texWidth, y: texHeight }
+		offset: { x: 0, y: 0 }
 	});
 
-  const pixelart = new PIXI.Sprite(texture);
-  const pixelartForPad = new PIXI.Sprite(texture);
-  container.addChild(pixelart);
-	//container.width = scale * width;
-	//container.height = scale * height;
-	//pixelart.width = scale * width;
-	//pixelart.height = scale * height;
+  //const pixelart = new PIXI.Sprite(texture);
+  //const pixelartForPad = new PIXI.Sprite(texture);
+  //container.addChild(pixelart);
 
-	const renderer = app.renderer;
-	const numThreads = 1;
+	//const renderer = app.renderer;
+	const numPaints = 1; //xPaintSectors * yPaintSectors;
+  const indexf = (xp, yp) => xp * yPaintSectors + yp;
 	const renderTexturePads = [];
 	const renderTextures = [];
-	for (let i = 0; i < numThreads; i++) {
-		renderTexturePads.push(PIXI.RenderTexture.create({ width: rect.width, height: rect.height, resolution: 1 }));
-		renderTextures.push(PIXI.RenderTexture.create({ width: rect.width, height: rect.height, resolution: 1 }));
+	for (let i = 0; i < numPaints; i++) {
+		renderTexturePads.push(PIXI.RenderTexture.create({ width: paintWidth, height: paintHeight, resolution: 1 }));
+		renderTextures.push(PIXI.RenderTexture.create({ width: paintWidth, height: paintHeight, resolution: 1 }));
 	}
-	//pixelart.filters = [filter];
-	pixelart.filters = [filter];
-	//filter.autoFit = false;
+  const renderTexturePad = renderTexturePads[0];
+  const renderTexture = renderTextures[0];
 
-	const inner = async function(resolve, x, y, renderTexture, renderTexturePad) {
-		const textureResized = new PIXI.Texture(texture, new PIXI.Rectangle(x, y, spriteWidth, spriteHeight));
-		pixelartForPad.texture = textureResized;
-		renderer.render(pixelartForPad, renderTexturePad);
+	const cloneCanvas = function(oldCanvas) {
 
-		textureResized.realWidth = rect.width;
-		textureResized.realHeight = rect.height;
-		pixelart.texture = renderTexturePad;
-		const sprite = pixelart;
-		renderer.resize(rect.width, rect.height);
-		renderer.render(sprite, renderTexture);
-		renderer.extract.canvas(sprite).toBlob(function(b){
-			var img = document.createElement('img');
-			document.body.append(img);
-			img.src = URL.createObjectURL(b);
-			img.id = x.toString() + ',' + y.toString();
-			resolve($(img));
-		}, 'image/png');
+    //create a new canvas
+    var newCanvas = document.createElement('canvas');
+    var context = newCanvas.getContext('2d');
+
+    //set dimensions
+    newCanvas.width = oldCanvas.width;
+    newCanvas.height = oldCanvas.height;
+
+    //apply the old canvas to the new one
+    context.drawImage(oldCanvas, 0, 0);
+
+    //return the new canvas
+    return newCanvas;
 	};
 
-	const draw = async function*() {
-		let thread = 0;
-		for (let y = 0; y < texHeight; y += spriteWidth) {
-			for (let x = 0; x < texWidth; x += spriteHeight) {
-				yield new Promise(resolve => inner(resolve, x, y, renderTextures[thread], renderTexturePads[thread]));
-				thread = (thread + 1) % numThreads;
+  const prepareDraw = function(xp, yp, renderTexture, renderTexturePad) {
+
+      // Expand/pad texture part to scale
+			const x = xp * paintWidth / scale;
+			const y = yp * paintHeight / scale;
+			const width = ((xp + 1) * paintWidth > rwidth ? rwidth % paintWidth : paintWidth) / scale;
+			const height = ((yp + 1) * paintHeight > rheight ? rheight % paintHeight : paintHeight) / scale;
+			/*
+      const pixelartForPad =
+				new PIXI.Sprite(
+					new PIXI.Texture(texture,
+						new PIXI.Rectangle(
+							xp * paintWidth / scale,
+							yp * paintHeight / scale,
+							((xp + 1) * paintWidth > rwidth ? rwidth % paintWidth : paintWidth) / scale,
+							((yp + 1) * paintHeight > rheight ? rheight % paintHeight : paintHeight) / scale)));
+			*/
+			console.log(
+							xp * paintWidth / scale,
+							yp * paintHeight / scale,
+							((xp + 1) * paintWidth > rwidth ? rwidth % paintWidth : paintWidth) / scale,
+							((yp + 1) * paintHeight > rheight ? rheight % paintHeight : paintHeight) / scale);
+//      renderer.resize(paintWidth, paintHeight);
+//      renderer.render(pixelartForPad, renderTexturePad);
+
+			// Copy sprites into bigger canvas
+      const smallCanvas = document.createElement('canvas');
+      const ctx = smallCanvas.getContext('2d');
+      smallCanvas.width = paintWidth;
+      smallCanvas.height = paintHeight;
+			const image = $("#sourceImage")[0];
+			//console.log(window.loaded);
+			ctx.clearRect(0, 0, smallCanvas.width, smallCanvas.height);
+      ctx.drawImage(image, x, y, width, height, 0, 0, width, height);
+
+      // Now actually scale the padded texture
+			//const pixelart = new PIXI.Sprite(renderTexturePad);
+			const pixelart = new PIXI.Sprite(PIXI.Texture.from(smallCanvas));
+			pixelart.filters = [filter];
+      //pixelart.texture = renderTexturePad;
+      //renderer.resize(paintWidth, paintHeight);
+			//console.log("pixelart", pixelart.width, pixelart.height, renderTexture.width, renderTexture.height);
+      renderer.render(pixelart, renderTexture);
+      //const canvas = renderer.extract.canvas(pixelart);
+      const canvas = renderer.extract.canvas(renderTexture);
+			//document.body.appendChild(canvas);
+			return canvas;
+      //return cloneCanvas(canvas);
+  }
+	const inner = async function(resolve, canvas, x, y) {
+      const smallCanvas = document.createElement('canvas');
+      const ctx = smallCanvas.getContext('2d');
+      smallCanvas.width = scaledSpriteWidth;
+      smallCanvas.height = scaledSpriteHeight;
+      ctx.drawImage(canvas, x, y, scaledSpriteWidth, scaledSpriteHeight, 0, 0, scaledSpriteWidth, scaledSpriteHeight);
+      document.body.appendChild(smallCanvas);
+      resolve($(smallCanvas));
+      /*
+      smallCanvas.toBlob(function(b){
+        const img = document.createElement('img');
+        document.body.append(img);
+        img.src = URL.createObjectURL(b);
+        img.id = x.toString() + ',' + y.toString();
+        resolve($(img));
+        smallCanvas.remove();
+      }, 'image/png');
+      */
+	};
+
+	const draw = async function*(canvases) {
+		for (let yr = 0; yr < rheight; yr += scaledSpriteWidth) {
+			for (let xr = 0; xr < rwidth; xr += scaledSpriteHeight) {
+        const xp = Math.floor(xr / paintWidth);
+        const yp = Math.floor(yr / paintHeight);
+        const x = xr % paintWidth;
+        const y = yr % paintHeight;
+        const paintIndex = indexf(xp, yp);
+				yield new Promise(resolve => inner(resolve, canvases[paintIndex], x, y));
 			}
 		}
 	};
 
-	/*
-	$("body").append("<canvas id='spritecanvas' width=" + width + " height=" + height + "></canvas>");
-	const spritecanvas = $("#spritecanvas")[0];
-	const vctx = spritecanvas.getContext('2d');
-	const sourceCanas = renderer.context.canvas;
-	console.log(sourceCanvas);
-	vctx.drawImage(sourceCanvas, 0, 0); 
-	const capturedImage = spritecanvas.toDataURL();
-	$("body").append("<img id='sprite'></img>");
-	$("#sprite").src = capturedImage;
-	*/
-
-	const drawer = draw();
-
   // Listen for animate update
 	let finished = false;
-  app.ticker.add(async (delta) => {
+	const raf = requestAnimationFrame;
+  const update = (async (delta) => {
       // rotate the container!
       // use delta to create frame-independent transform
       //container.rotation -= 0.01 * delta;
-			if (texture.width > 0) {
-				const list = [];
-				for (let i = 0; i < numThreads; i++) {
-					if (!finished) {
-						const next = drawer.next();
-						finished = next.done;
-						list.push(next.value);
-					};
-				}
-				const imgs = await Promise.all(list);
-				$('body').animate({
-						scrollTop: imgs[imgs.length - 1].offset().top
-				}, 1000);
+			if (!finished && texture.width > 0 && texture.valid) {
+        finished = true;
+        const canvases = [];
+        for (let xp = 0; xp < xPaintSectors; xp++) {
+          for (let yp = 0; yp < yPaintSectors; yp++) {
+						//const paintIndex = indexf(xp, yp);
+						const paintIndex = 0;
+            canvases.push(prepareDraw(xp, yp, renderTextures[paintIndex], renderTexturePads[paintIndex]));
+            //console.log(indexf(xp, yp), canvases.length);
+          }
+        }
+        //indexf(xp, yp);
+        for await (const img of draw(canvases)) {
+          //console.log(img);
+        }
 			}
+			raf(update);
   });
+	update();
+	window.retry = function() {
+		finished = false;
+		update();
 	};
+};
 
 $(main);

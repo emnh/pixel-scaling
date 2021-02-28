@@ -3,8 +3,14 @@
   <head>
     <title>Tiles</title>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
-    <script src="index.js"></script>
   </head>
   <body>
+    <script>
+    const imgload = function() {
+      window.loaded = true;
+    };
+    </script>
+    <img id="sourceImage" src="ProjectUtumno_full.png" style="display: none;" onload="imgload();"></img>
+    <script src="index.js"></script>
   </body>
 </html>
